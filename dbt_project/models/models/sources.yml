@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: lark_raw
+    schema: public
+    tables:
+      - name: business_performance
+      - name: stg_lark_target
+      - name: tiktok_video_stats  
