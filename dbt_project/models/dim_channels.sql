@@ -13,9 +13,7 @@ SELECT
         WHEN sales_name ILIKE '%Cảnh%' THEN 'johnny.techguide'
         WHEN sales_name ILIKE '%Huy%'   THEN 'holden_genfarmer'
         WHEN sales_name ILIKE '%Jocelyn%' THEN 'jocelyn.genboxphone'
-        -- Ông Litch: Bắt bằng chữ 'Litch' cho chắc
         WHEN sales_name ILIKE '%Litch%'   THEN 'licht_do1112' 
-        -- Ông Đạt: Chỉ bắt bằng 'Tiktok' và kết thúc bằng 't', bỏ qua chữ Đạt ở giữa
         WHEN sales_name ILIKE 'Tiktok %t' AND sales_name NOT LIKE '%Huy%' THEN 'pdat.genfarmer'
         WHEN sales_name ILIKE '%Thiên%' THEN 'vt.zerotrace'
         ELSE sales_name 
