@@ -21,4 +21,5 @@ jobs:
           pip install dbt-postgres # Hoặc adapter ông đang dùng
 
       - name: Run dbt
-        run: dbt run --profiles-dir . # Đảm bảo file profiles.yml có trong repo
+        working-directory: ./dbt_project  # Thêm dòng này để dẫn đường cho GitHub vào đúng thư mục
+        run: dbt run --profiles-dir .
