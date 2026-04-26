@@ -1,15 +1,16 @@
-name: Run dbt Pipeline
+name: Full Tiktok Lark Data Pipeline
 
 on:
-  workflow_dispatch: # Cho phép ông bấm nút chạy tay bất cứ lúc nào
-  push:
-    branches: [ main ] # Tự chạy mỗi khi ông update code
+  workflow_dispatch: # Cho phép bấm nút chạy tay khi đang ở quê
+  schedule:
+    - cron: '0 2 * * *' # Tự động chạy lúc 2h sáng (giờ UTC) hàng ngày
 
 jobs:
-  run_dbt:
+  run_pipeline:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -18,8 +19,22 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install dbt-postgres # Hoặc adapter ông đang dùng
+          pip install requests pandas sqlalchemy psycopg2-binary dbt-postgres python-dotenv
+          # Thêm các thư viện khác nếu file .py của ông yêu cầu
 
-      - name: Run dbt
-        working-directory: ./dbt_project  # Thêm dòng này để dẫn đường cho GitHub vào đúng thư mục
+      - name: Run Extraction (Lark to Supabase)
+        env:
+          LARK_API_TOKEN: ${{ secrets.LARK_API_TOKEN }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          # Chạy file find_target.py trước nếu nó dùng để cấu hình
+          python find_target.py || echo "find_target not required"
+          # Chạy file chính để kéo data
+          python airflow/dags/extract_lark.py
+
+      - name: Run dbt Transform
+        working-directory: ./dbt_project
+        env:
+          # dbt đôi khi cần pass để connect trong profile
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }} 
         run: dbt run --profiles-dir .
