@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
+  schedule:
+    # Chạy vào 12:00 UTC (19h VN) và 23:00 UTC (6h sáng VN hôm sau)
+    - cron: '0 12,23 * * *'
 
 jobs:
   run_pipeline:
