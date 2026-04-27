@@ -61,7 +61,8 @@ def main():
     final['month_label'] = df_tk.get(c_month, '').fillna('').astype(str).str.replace('Tháng ', 'T', regex=False)
     
     # FIX NGÀY: Chuyển ms sang YYYY-MM-DD
-    final['log_date'] = pd.to_datetime(df_tk[c_ngay], unit='ms', errors='coerce').dt.date
+    # Code mới: Gắn UTC -> Chuyển sang giờ VN -> Lấy ngày
+    final['log_date'] = pd.to_datetime(df_tk[c_ngay], unit='ms', errors='coerce', utc=True).dt.tz_convert('Asia/Ho_Chi_Minh').dt.date
     
     # FIX DOANH THU & SỐ LƯỢNG
     final['revenue'] = pd.to_numeric(df_tk.get(c_tien, 0), errors='coerce').fillna(0).astype(float)
