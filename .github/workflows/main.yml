@@ -37,11 +37,6 @@ jobs:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: python airflow/dags/extract_lark.py
 
-      - name: BƯỚC 2.5 - Đảm bảo schema (tạo cột/bảng mới cho dbt)
-        env:
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-        run: python ensure_schema.py
-
       - name: BƯỚC 3 - Chạy dbt Transform
         working-directory: ./dbt_project
         env:
