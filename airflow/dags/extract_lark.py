@@ -136,6 +136,35 @@ def normalize_all(df_raw):
 
 
 # ─────────────────────────────────────────────────────────────
+# BƯỚC 3.5: Đảm bảo schema — tạo bảng instagram + thêm cột mới
+#   Idempotent: chạy lại nhiều lần không lỗi.
+# ─────────────────────────────────────────────────────────────
+def ensure_schema(engine):
+    ddl = """
+    CREATE TABLE IF NOT EXISTS public.instagram_performance
+        (LIKE public.business_performance INCLUDING ALL);
+
+    DO $$
+    DECLARE t text;
+    BEGIN
+        FOREACH t IN ARRAY ARRAY['business_performance','instagram_performance'] LOOP
+            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS platform       TEXT', t);
+            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS device_count   INTEGER DEFAULT 0', t);
+            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS order_count    INTEGER DEFAULT 1', t);
+            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS lark_record_id TEXT', t);
+            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS week_label     TEXT', t);
+            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS month_label    TEXT', t);
+        END LOOP;
+    END $$;
+    """
+    with engine.connect() as conn:
+        print("   🛠  Đảm bảo schema (tạo bảng IG + thêm cột mới)...")
+        conn.execute(text(ddl))
+        conn.commit()
+    print("   ✅ Schema sẵn sàng.")
+
+
+# ─────────────────────────────────────────────────────────────
 # BƯỚC 4: Load vào một bảng Supabase
 # ─────────────────────────────────────────────────────────────
 def load_to_db(engine, df, table_name):
@@ -180,6 +209,7 @@ def main():
     try:
         engine = create_engine(DB_CONN)
         print("\n📦 Đang nạp vào Supabase...")
+        ensure_schema(engine)
         load_to_db(engine, df_tiktok,    'business_performance')
         load_to_db(engine, df_instagram, 'instagram_performance')
         print("\n--- ✅ KẾT THÚC CÔNG VIỆC! DỮ LIỆU ĐÃ SẴN SÀNG ---")
