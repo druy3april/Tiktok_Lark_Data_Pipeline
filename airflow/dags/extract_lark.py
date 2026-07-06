@@ -47,40 +47,41 @@ def get_lark_data(url):
 
 
 # ─────────────────────────────────────────────────────────────
-# BƯỚC 2: Gán platform ĐỘC QUYỀN cho từng dòng
-#   Mỗi dòng chỉ thuộc đúng 1 platform. Không dùng contains
-#   trùng lặp khiến 1 dòng lọt vào cả 2 bảng.
+# BƯỚC 2: Tách TAG NỀN TẢNG khỏi "Nguồn khách"
+#   Quy ước Lark: mỗi nguồn ghi dạng "<Platform> <Tên kênh>"
+#       vd "Tiktok Cảnh", "Instagram Cảnh", "Tiktok Litch".
+#   → Chữ ĐẦU là platform, phần còn lại là tên kênh sạch.
+#   → Dòng KHÔNG có tag tiktok/ig → 'Unknown' → BỊ LOẠI khỏi báo cáo.
 # ─────────────────────────────────────────────────────────────
-# Từ khóa nhận diện TikTok. Chỉ dùng token TƯỜNG MINH, có ranh giới từ (\b)
-#   để tránh bắt nhầm "tt"/"ig" nằm lẫn trong chữ khác.
-#   'tt' chỉ khớp khi đứng độc lập (vd "tt huy"), KHÔNG khớp "attitude".
+# Token nền tảng, có ranh giới từ (\b) để không bắt nhầm chữ lẫn bên trong.
 RE_TIKTOK = re.compile(
     r'\btiktok\b|\btik[\s\-_.]?tok\b|\btt\b|\bdouyin\b',
     re.IGNORECASE
 )
-# Từ khóa Instagram. 'ig'/'insta' chỉ khớp khi là token độc lập.
 RE_INSTAGRAM = re.compile(
     r'\binstagram\b|\binsta\b|\big\b|\breels?\b',
     re.IGNORECASE
 )
 
-# Platform mặc định cho các dòng KHÔNG match được keyword nào.
-#   Đổi thành 'Instagram' nếu nguồn mặc định của team là IG.
-#   Đặt None nếu muốn để riêng nhóm 'Unknown' (không gộp vào nền tảng nào).
-DEFAULT_PLATFORM = 'Tiktok'
+# Pattern để CẮT tag platform ra khỏi đầu chuỗi (lấy phần tên kênh).
+RE_STRIP_TAG = re.compile(
+    r'^\s*(?:tiktok|tik[\s\-_.]?tok|tt|douyin|instagram|insta|ig|reels?)'
+    r'[\s\-_.:|]*',
+    re.IGNORECASE
+)
 
 
 def classify_platform(nguon: str) -> str:
-    """Phân loại nền tảng ĐỘC QUYỀN cho mỗi dòng.
+    """Phân loại nền tảng theo TAG trong nguồn khách.
 
     Trả về đúng 1 trong: 'Tiktok', 'Instagram', 'Unknown'.
-    KHÔNG bao giờ trả 'AMBIGUOUS'/'' để tránh làm mất doanh thu.
+    'Unknown' = không có tag rõ ràng → sẽ bị loại khỏi báo cáo.
     """
     s = str(nguon or '')
     is_tt = bool(RE_TIKTOK.search(s))
     is_ig = bool(RE_INSTAGRAM.search(s))
 
-    # Khớp cả hai → ưu tiên token XUẤT HIỆN TRƯỚC trong chuỗi nguồn
+    # Khớp cả hai → ưu tiên tag XUẤT HIỆN TRƯỚC (thường là chữ đầu)
     if is_tt and is_ig:
         pos_tt = RE_TIKTOK.search(s).start()
         pos_ig = RE_INSTAGRAM.search(s).start()
@@ -89,8 +90,20 @@ def classify_platform(nguon: str) -> str:
         return 'Tiktok'
     if is_ig:
         return 'Instagram'
-    # Không khớp gì → gán mặc định (vẫn được nạp, không bị rớt khỏi 2 bảng)
-    return DEFAULT_PLATFORM if DEFAULT_PLATFORM else 'Unknown'
+    return 'Unknown'   # không có tag → loại khỏi báo cáo ở bước split
+
+
+def clean_channel_name(nguon: str) -> str:
+    """Bỏ tag platform ở đầu, trả về TÊN KÊNH sạch.
+
+    'Tiktok Cảnh'    -> 'Cảnh'
+    'Instagram Cảnh' -> 'Cảnh'
+    'Tiktok Litch'   -> 'Litch'
+    Nếu sau khi bỏ tag mà rỗng → giữ nguyên chuỗi gốc để soi tay.
+    """
+    s = str(nguon or '').strip()
+    cleaned = RE_STRIP_TAG.sub('', s).strip()
+    return cleaned if cleaned else s
 
 
 # ─────────────────────────────────────────────────────────────
@@ -119,7 +132,8 @@ def normalize_all(df_raw):
 
     final = pd.DataFrame()
     final['lark_record_id'] = df_raw.get('_lark_record_id', pd.Series(dtype=str))
-    final['channel_name']   = df_raw[c_nguon]
+    final['channel_raw']    = df_raw[c_nguon]                          # nguồn gốc (soi lỗi)
+    final['channel_name']   = df_raw[c_nguon].apply(clean_channel_name) # tên kênh sạch (bỏ tag)
     final['platform']       = df_raw[c_nguon].apply(classify_platform)
     final['week_label']     = df_raw.get(c_week, pd.Series(dtype=str)).fillna('').astype(str)
     final['month_label']    = (
@@ -154,13 +168,13 @@ def normalize_all(df_raw):
     if has_rid.any():
         with_id    = final[has_rid].drop_duplicates(subset=['lark_record_id'])
         without_id = final[~has_rid].drop_duplicates(
-            subset=['channel_name', 'log_date', 'revenue', 'device_count']
+            subset=['platform', 'channel_name', 'log_date', 'revenue', 'device_count']
         )
         final = pd.concat([with_id, without_id], ignore_index=True)
     else:
         # Không có record_id → dedup theo tổ hợp khóa nghiệp vụ
         final = final.drop_duplicates(
-            subset=['channel_name', 'log_date', 'revenue', 'device_count']
+            subset=['platform', 'channel_name', 'log_date', 'revenue', 'device_count']
         )
 
     # Báo cáo dòng bất thường để soi tay
@@ -170,8 +184,9 @@ def normalize_all(df_raw):
     print(f"   📊 Phân bố nền tảng: {dist}")
     n_unknown = (final['platform'] == 'Unknown').sum()
     if n_unknown:
-        print(f"   ⚠️  {n_unknown} dòng KHÔNG nhận diện được nền tảng "
-              f"(đang để nhóm 'Unknown', cần bổ sung keyword/alias).")
+        mau = final.loc[final['platform'] == 'Unknown', 'channel_raw'].unique()[:10]
+        print(f"   🗑  {n_unknown} dòng KHÔNG có tag tiktok/ig → SẼ BỊ LOẠI khỏi báo cáo.")
+        print(f"      Ví dụ nguồn bị loại: {list(mau)}")
 
     return final
 
@@ -239,23 +254,29 @@ def main():
     if df_all.empty:
         print("❌ Không chuẩn hóa được dữ liệu."); return
 
-    # Tách theo nền tảng. Dòng 'Unknown' (nếu có) GỘP vào bảng TikTok
-    #   để không mất doanh thu — thay vì bị loại khỏi cả hai bảng như trước.
-    df_tiktok    = df_all[df_all['platform'].isin(['Tiktok', 'Unknown'])].copy()
-    df_instagram = df_all[df_all['platform'] == 'Instagram'].copy()
+    # LOẠI dòng không rõ nền tảng khỏi báo cáo (theo yêu cầu).
+    n_all = len(df_all)
+    df_known = df_all[df_all['platform'].isin(['Tiktok', 'Instagram'])].copy()
+    n_dropped = n_all - len(df_known)
+    if n_dropped:
+        print(f"\n🗑  Đã loại {n_dropped} dòng 'Unknown' khỏi báo cáo.")
 
-    # Kiểm tra bất biến: KHÔNG dòng nào bị mất, KHÔNG dòng nào bị đếm 2 lần
-    assert len(df_tiktok) + len(df_instagram) == len(df_all), (
+    # Tách chặt theo nền tảng — mỗi bảng chỉ chứa đúng platform của nó.
+    df_tiktok    = df_known[df_known['platform'] == 'Tiktok'].copy()
+    df_instagram = df_known[df_known['platform'] == 'Instagram'].copy()
+
+    # Bất biến: không mất, không đếm 2 lần trong phần đã-biết-nền-tảng
+    assert len(df_tiktok) + len(df_instagram) == len(df_known), (
         f"Mất/nhân đôi dòng khi tách: tiktok={len(df_tiktok)} + "
-        f"insta={len(df_instagram)} != tổng={len(df_all)}"
+        f"insta={len(df_instagram)} != known={len(df_known)}"
     )
 
     print(f"\n[1/2] TikTok:    {len(df_tiktok)} dòng")
     print(f"[2/2] Instagram: {len(df_instagram)} dòng")
     print(f"   Σ revenue TikTok:    {df_tiktok['revenue'].sum():,.0f}")
     print(f"   Σ revenue Instagram: {df_instagram['revenue'].sum():,.0f}")
-    print(f"   Σ revenue TỔNG:      {df_all['revenue'].sum():,.0f} "
-          f"(phải = TikTok + Instagram)")
+    print(f"   Σ revenue (đã lọc):  {df_known['revenue'].sum():,.0f} "
+          f"(= TikTok + Instagram, KHÔNG gồm Unknown)")
 
     try:
         engine = create_engine(DB_CONN)
