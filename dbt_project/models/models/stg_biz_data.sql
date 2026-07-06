@@ -1,11 +1,15 @@
 -- models/models/stg_biz_data.sql
 -- Gộp doanh thu TikTok + Instagram từ 2 bảng nguồn.
+-- ⚠ QUAN TRỌNG: platform được gán CỨNG theo BẢNG NGUỒN, KHÔNG lấy từ
+--   cột 'platform' trong bảng (cột đó từng bị pipeline gán sai).
+--   → business_performance  = luôn 'tiktok'
+--   → instagram_performance = luôn 'instagram'
 -- Mỗi dòng Lark = 1 đơn (orders = SUM(order_count)); device tách riêng.
--- Chọn cột tường minh để tránh trùng cột 'platform' khi UNION.
 
 WITH unioned AS (
+    -- Nguồn TikTok
     SELECT
-        platform,
+        'tiktok'::text AS platform,   -- gán cứng theo bảng
         channel_name,
         revenue,
         order_count,
@@ -15,8 +19,9 @@ WITH unioned AS (
 
     UNION ALL
 
+    -- Nguồn Instagram
     SELECT
-        platform,
+        'instagram'::text AS platform, -- gán cứng theo bảng
         channel_name,
         revenue,
         order_count,
