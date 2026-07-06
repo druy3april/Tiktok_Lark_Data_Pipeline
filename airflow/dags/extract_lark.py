@@ -141,8 +141,40 @@ def normalize_all(df_raw):
         .fillna('').astype(str)
         .str.replace('Tháng ', 'T', regex=False)
     )
+    # ── log_date lấy từ cột "Ngày mua" ──
+    # Lark có thể trả 2 kiểu: (a) epoch mili-giây (số), hoặc (b) chuỗi ngày "dd/mm/yyyy".
+    # Parse LINH HOẠT: số lớn → epoch ms; còn lại → ngày dạng chữ (dayfirst, giờ VN).
+    def _parse_ngay_mua(series):
+        raw = series.copy()
+        num = pd.to_numeric(raw, errors='coerce')
+        # Ngưỡng ~ epoch ms hợp lệ (sau năm 2001). Dưới ngưỡng coi như KHÔNG phải ms.
+        is_ms = num.notna() & (num > 1_000_000_000_000)
+
+        out = pd.Series(pd.NaT, index=raw.index, dtype='datetime64[ns, UTC]')
+        # (a) epoch ms
+        if is_ms.any():
+            out.loc[is_ms] = pd.to_datetime(
+                num[is_ms], unit='ms', errors='coerce', utc=True
+            )
+        # (b) chuỗi ngày "dd/mm/yyyy" (và các định dạng ngày thường), ưu tiên ngày trước
+        mask_str = ~is_ms
+        if mask_str.any():
+            svals = raw[mask_str].astype(str).str.strip()
+            # ISO yyyy-mm-dd: để pandas tự nhận (không dayfirst)
+            iso = svals.str.match(r'^\d{4}-\d{2}-\d{2}')
+            parsed = pd.Series(pd.NaT, index=svals.index, dtype='datetime64[ns, UTC]')
+            if iso.any():
+                parsed.loc[iso] = pd.to_datetime(svals[iso], errors='coerce', utc=True)
+            # Còn lại (dd/mm/yyyy...) → dayfirst
+            if (~iso).any():
+                parsed.loc[~iso] = pd.to_datetime(
+                    svals[~iso], errors='coerce', dayfirst=True, utc=True
+                )
+            out.loc[mask_str] = parsed
+        return out
+
     final['log_date'] = (
-        pd.to_datetime(df_raw[c_ngay], unit='ms', errors='coerce', utc=True)
+        _parse_ngay_mua(df_raw[c_ngay])
         .dt.tz_convert('Asia/Ho_Chi_Minh')
         .dt.date
     )
