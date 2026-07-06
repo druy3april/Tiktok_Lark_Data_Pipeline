@@ -29,12 +29,18 @@ def get_lark_data(url):
         return pd.DataFrame()
 
     all_records = []
+    seen_ids = set()
     sources = data['sources']
     for region in ['global', 'sg']:
         if region in sources and isinstance(sources[region], list):
             for item in sources[region]:
                 fields = dict(item.get('fields', item))
                 rid = item.get('record_id') or item.get('id')
+                # Dedup NGAY tại nguồn: cùng record_id ở global lẫn sg chỉ lấy 1 lần
+                if rid is not None:
+                    if rid in seen_ids:
+                        continue
+                    seen_ids.add(rid)
                 fields['_lark_record_id'] = rid
                 all_records.append(fields)
     return pd.DataFrame(all_records)
@@ -116,15 +122,24 @@ def normalize_all(df_raw):
 
     final['created_at'] = datetime.now()
 
-    # Dedup theo khóa duy nhất của Lark (KHÔNG dedup trên toàn bộ giá trị)
-    if final['lark_record_id'].notna().any():
-        final = final.drop_duplicates(subset=['lark_record_id'])
+    n_before = len(final)
+    # ── DEDUP nhiều lớp (chống nhân đôi do region global/sg trùng) ──
+    # Lớp 1: theo record_id của Lark (nếu có giá trị)
+    has_rid = final['lark_record_id'].notna() & (final['lark_record_id'].astype(str).str.len() > 0)
+    if has_rid.any():
+        with_id    = final[has_rid].drop_duplicates(subset=['lark_record_id'])
+        without_id = final[~has_rid].drop_duplicates(
+            subset=['channel_name', 'log_date', 'revenue', 'device_count']
+        )
+        final = pd.concat([with_id, without_id], ignore_index=True)
     else:
+        # Không có record_id → dedup theo tổ hợp khóa nghiệp vụ
         final = final.drop_duplicates(
             subset=['channel_name', 'log_date', 'revenue', 'device_count']
         )
 
     # Báo cáo dòng bất thường để soi tay
+    print(f"   🔁 Dedup: {n_before} → {len(final)} dòng (loại {n_before - len(final)} trùng).")
     n_ambig = (final['platform'] == 'AMBIGUOUS').sum()
     n_none  = (final['platform'] == '').sum()
     if n_ambig:
