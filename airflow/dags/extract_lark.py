@@ -51,21 +51,46 @@ def get_lark_data(url):
 #   Mỗi dòng chỉ thuộc đúng 1 platform. Không dùng contains
 #   trùng lặp khiến 1 dòng lọt vào cả 2 bảng.
 # ─────────────────────────────────────────────────────────────
-RE_TIKTOK    = re.compile(r'\btiktok\b|\btt\b',    re.IGNORECASE)
-RE_INSTAGRAM = re.compile(r'\binstagram\b|\big\b', re.IGNORECASE)
+# Từ khóa nhận diện TikTok. Chỉ dùng token TƯỜNG MINH, có ranh giới từ (\b)
+#   để tránh bắt nhầm "tt"/"ig" nằm lẫn trong chữ khác.
+#   'tt' chỉ khớp khi đứng độc lập (vd "tt huy"), KHÔNG khớp "attitude".
+RE_TIKTOK = re.compile(
+    r'\btiktok\b|\btik[\s\-_.]?tok\b|\btt\b|\bdouyin\b',
+    re.IGNORECASE
+)
+# Từ khóa Instagram. 'ig'/'insta' chỉ khớp khi là token độc lập.
+RE_INSTAGRAM = re.compile(
+    r'\binstagram\b|\binsta\b|\big\b|\breels?\b',
+    re.IGNORECASE
+)
+
+# Platform mặc định cho các dòng KHÔNG match được keyword nào.
+#   Đổi thành 'Instagram' nếu nguồn mặc định của team là IG.
+#   Đặt None nếu muốn để riêng nhóm 'Unknown' (không gộp vào nền tảng nào).
+DEFAULT_PLATFORM = 'Tiktok'
 
 
 def classify_platform(nguon: str) -> str:
-    """Trả về 'Tiktok', 'Instagram', 'AMBIGUOUS' hoặc '' (không xác định)."""
-    is_tt = bool(RE_TIKTOK.search(nguon))
-    is_ig = bool(RE_INSTAGRAM.search(nguon))
+    """Phân loại nền tảng ĐỘC QUYỀN cho mỗi dòng.
+
+    Trả về đúng 1 trong: 'Tiktok', 'Instagram', 'Unknown'.
+    KHÔNG bao giờ trả 'AMBIGUOUS'/'' để tránh làm mất doanh thu.
+    """
+    s = str(nguon or '')
+    is_tt = bool(RE_TIKTOK.search(s))
+    is_ig = bool(RE_INSTAGRAM.search(s))
+
+    # Khớp cả hai → ưu tiên token XUẤT HIỆN TRƯỚC trong chuỗi nguồn
     if is_tt and is_ig:
-        return 'AMBIGUOUS'   # khớp cả hai → soi tay, KHÔNG đếm 2 lần
+        pos_tt = RE_TIKTOK.search(s).start()
+        pos_ig = RE_INSTAGRAM.search(s).start()
+        return 'Tiktok' if pos_tt <= pos_ig else 'Instagram'
     if is_tt:
         return 'Tiktok'
     if is_ig:
         return 'Instagram'
-    return ''
+    # Không khớp gì → gán mặc định (vẫn được nạp, không bị rớt khỏi 2 bảng)
+    return DEFAULT_PLATFORM if DEFAULT_PLATFORM else 'Unknown'
 
 
 # ─────────────────────────────────────────────────────────────
@@ -140,12 +165,13 @@ def normalize_all(df_raw):
 
     # Báo cáo dòng bất thường để soi tay
     print(f"   🔁 Dedup: {n_before} → {len(final)} dòng (loại {n_before - len(final)} trùng).")
-    n_ambig = (final['platform'] == 'AMBIGUOUS').sum()
-    n_none  = (final['platform'] == '').sum()
-    if n_ambig:
-        print(f"   ⚠️  {n_ambig} dòng khớp CẢ TikTok lẫn Instagram (AMBIGUOUS, không đếm 2 lần).")
-    if n_none:
-        print(f"   ⚠️  {n_none} dòng KHÔNG khớp platform nào (nguồn khách lạ, cần kiểm tra).")
+    # Báo cáo phân bố platform để soi tay
+    dist = final['platform'].value_counts().to_dict()
+    print(f"   📊 Phân bố nền tảng: {dist}")
+    n_unknown = (final['platform'] == 'Unknown').sum()
+    if n_unknown:
+        print(f"   ⚠️  {n_unknown} dòng KHÔNG nhận diện được nền tảng "
+              f"(đang để nhóm 'Unknown', cần bổ sung keyword/alias).")
 
     return final
 
@@ -213,13 +239,23 @@ def main():
     if df_all.empty:
         print("❌ Không chuẩn hóa được dữ liệu."); return
 
-    df_tiktok    = df_all[df_all['platform'] == 'Tiktok'].copy()
+    # Tách theo nền tảng. Dòng 'Unknown' (nếu có) GỘP vào bảng TikTok
+    #   để không mất doanh thu — thay vì bị loại khỏi cả hai bảng như trước.
+    df_tiktok    = df_all[df_all['platform'].isin(['Tiktok', 'Unknown'])].copy()
     df_instagram = df_all[df_all['platform'] == 'Instagram'].copy()
+
+    # Kiểm tra bất biến: KHÔNG dòng nào bị mất, KHÔNG dòng nào bị đếm 2 lần
+    assert len(df_tiktok) + len(df_instagram) == len(df_all), (
+        f"Mất/nhân đôi dòng khi tách: tiktok={len(df_tiktok)} + "
+        f"insta={len(df_instagram)} != tổng={len(df_all)}"
+    )
 
     print(f"\n[1/2] TikTok:    {len(df_tiktok)} dòng")
     print(f"[2/2] Instagram: {len(df_instagram)} dòng")
     print(f"   Σ revenue TikTok:    {df_tiktok['revenue'].sum():,.0f}")
     print(f"   Σ revenue Instagram: {df_instagram['revenue'].sum():,.0f}")
+    print(f"   Σ revenue TỔNG:      {df_all['revenue'].sum():,.0f} "
+          f"(phải = TikTok + Instagram)")
 
     try:
         engine = create_engine(DB_CONN)
