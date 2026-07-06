@@ -85,12 +85,12 @@ def classify_platform(nguon: str) -> str:
     if is_tt and is_ig:
         pos_tt = RE_TIKTOK.search(s).start()
         pos_ig = RE_INSTAGRAM.search(s).start()
-        return 'Tiktok' if pos_tt <= pos_ig else 'Instagram'
+        return 'tiktok' if pos_tt <= pos_ig else 'instagram'
     if is_tt:
-        return 'Tiktok'
+        return 'tiktok'
     if is_ig:
-        return 'Instagram'
-    return 'Unknown'   # không có tag → loại khỏi báo cáo ở bước split
+        return 'instagram'
+    return 'unknown'   # không có tag → loại khỏi báo cáo ở bước split
 
 
 def clean_channel_name(nguon: str) -> str:
@@ -182,9 +182,9 @@ def normalize_all(df_raw):
     # Báo cáo phân bố platform để soi tay
     dist = final['platform'].value_counts().to_dict()
     print(f"   📊 Phân bố nền tảng: {dist}")
-    n_unknown = (final['platform'] == 'Unknown').sum()
+    n_unknown = (final['platform'] == 'unknown').sum()
     if n_unknown:
-        mau = final.loc[final['platform'] == 'Unknown', 'channel_raw'].unique()[:10]
+        mau = final.loc[final['platform'] == 'unknown', 'channel_raw'].unique()[:10]
         print(f"   🗑  {n_unknown} dòng KHÔNG có tag tiktok/ig → SẼ BỊ LOẠI khỏi báo cáo.")
         print(f"      Ví dụ nguồn bị loại: {list(mau)}")
 
@@ -205,6 +205,7 @@ def ensure_schema(engine):
     BEGIN
         FOREACH t IN ARRAY ARRAY['business_performance','instagram_performance'] LOOP
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS platform       TEXT', t);
+            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS channel_raw    TEXT', t);
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS device_count   INTEGER DEFAULT 0', t);
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS order_count    INTEGER DEFAULT 1', t);
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS lark_record_id TEXT', t);
@@ -256,14 +257,14 @@ def main():
 
     # LOẠI dòng không rõ nền tảng khỏi báo cáo (theo yêu cầu).
     n_all = len(df_all)
-    df_known = df_all[df_all['platform'].isin(['Tiktok', 'Instagram'])].copy()
+    df_known = df_all[df_all['platform'].isin(['tiktok', 'instagram'])].copy()
     n_dropped = n_all - len(df_known)
     if n_dropped:
-        print(f"\n🗑  Đã loại {n_dropped} dòng 'Unknown' khỏi báo cáo.")
+        print(f"\n🗑  Đã loại {n_dropped} dòng 'unknown' khỏi báo cáo.")
 
     # Tách chặt theo nền tảng — mỗi bảng chỉ chứa đúng platform của nó.
-    df_tiktok    = df_known[df_known['platform'] == 'Tiktok'].copy()
-    df_instagram = df_known[df_known['platform'] == 'Instagram'].copy()
+    df_tiktok    = df_known[df_known['platform'] == 'tiktok'].copy()
+    df_instagram = df_known[df_known['platform'] == 'instagram'].copy()
 
     # Bất biến: không mất, không đếm 2 lần trong phần đã-biết-nền-tảng
     assert len(df_tiktok) + len(df_instagram) == len(df_known), (
