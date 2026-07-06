@@ -1,3 +1,4 @@
+import re
 import requests
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -14,32 +15,57 @@ DB_CONN = os.getenv('SUPABASE_DB_URL')
 
 
 # ─────────────────────────────────────────────────────────────
-# BƯỚC 1: Kéo toàn bộ data từ Lark (giữ nguyên, không đổi)
+# BƯỚC 1: Kéo toàn bộ data từ Lark
+#   → Giữ lại record_id (khóa duy nhất) để dedup chính xác
 # ─────────────────────────────────────────────────────────────
 def get_lark_data(url):
-    print(f"📡 Đang gọi API Lark...")
+    print("📡 Đang gọi API Lark...")
     response = requests.get(url, headers=HEADERS, timeout=60)
-    if response.status_code == 200:
-        data = response.json()
-        if isinstance(data, dict) and 'sources' in data:
-            all_records = []
-            sources = data['sources']
-            for region in ['global', 'sg']:
-                if region in sources and isinstance(sources[region], list):
-                    for item in sources[region]:
-                        all_records.append(item.get('fields', item))
-            return pd.DataFrame(all_records)
-    return pd.DataFrame()
+    if response.status_code != 200:
+        return pd.DataFrame()
+
+    data = response.json()
+    if not (isinstance(data, dict) and 'sources' in data):
+        return pd.DataFrame()
+
+    all_records = []
+    sources = data['sources']
+    for region in ['global', 'sg']:
+        if region in sources and isinstance(sources[region], list):
+            for item in sources[region]:
+                fields = dict(item.get('fields', item))
+                rid = item.get('record_id') or item.get('id')
+                fields['_lark_record_id'] = rid
+                all_records.append(fields)
+    return pd.DataFrame(all_records)
 
 
 # ─────────────────────────────────────────────────────────────
-# BƯỚC 2: Chuẩn hóa một DataFrame thô thành format chuẩn DB
-#         Dùng chung cho cả TikTok lẫn Instagram
+# BƯỚC 2: Gán platform ĐỘC QUYỀN cho từng dòng
+#   Mỗi dòng chỉ thuộc đúng 1 platform. Không dùng contains
+#   trùng lặp khiến 1 dòng lọt vào cả 2 bảng.
 # ─────────────────────────────────────────────────────────────
-def normalize_df(df_raw, platform_tag):
-    """
-    platform_tag: 'Tiktok' hoặc 'Instagram' — dùng để lọc cột Nguồn khách
-    """
+RE_TIKTOK    = re.compile(r'\btiktok\b|\btt\b',    re.IGNORECASE)
+RE_INSTAGRAM = re.compile(r'\binstagram\b|\big\b', re.IGNORECASE)
+
+
+def classify_platform(nguon: str) -> str:
+    """Trả về 'Tiktok', 'Instagram', 'AMBIGUOUS' hoặc '' (không xác định)."""
+    is_tt = bool(RE_TIKTOK.search(nguon))
+    is_ig = bool(RE_INSTAGRAM.search(nguon))
+    if is_tt and is_ig:
+        return 'AMBIGUOUS'   # khớp cả hai → soi tay, KHÔNG đếm 2 lần
+    if is_tt:
+        return 'Tiktok'
+    if is_ig:
+        return 'Instagram'
+    return ''
+
+
+# ─────────────────────────────────────────────────────────────
+# BƯỚC 3: Chuẩn hóa toàn bộ DataFrame thô (1 lần, có cột platform)
+# ─────────────────────────────────────────────────────────────
+def normalize_all(df_raw):
     if df_raw.empty:
         return pd.DataFrame()
 
@@ -55,46 +81,62 @@ def normalize_df(df_raw, platform_tag):
     c_month  = find_col(['Tháng'])
 
     if not c_nguon:
-        print(f"⚠️  Không tìm thấy cột 'Nguồn khách' trong data Lark.")
+        print("⚠️  Không tìm thấy cột 'Nguồn khách' trong data Lark.")
         return pd.DataFrame()
 
-    # Lọc theo tag platform (Tiktok / Instagram)
-    df_raw[c_nguon] = df_raw[c_nguon].fillna('')
-    df_filtered = df_raw[
-        df_raw[c_nguon].str.contains(platform_tag, na=False, case=False)
-    ].copy()
-
-    if df_filtered.empty:
-        print(f"⚠️  Không có dòng nào với tag '{platform_tag}' trong Lark.")
-        return pd.DataFrame()
+    df_raw[c_nguon] = df_raw[c_nguon].fillna('').astype(str)
 
     final = pd.DataFrame()
-    final['channel_name'] = df_filtered[c_nguon].astype(str)
-    final['week_label']   = df_filtered.get(c_week, pd.Series(dtype=str)).fillna('').astype(str)
-    final['month_label']  = (
-        df_filtered.get(c_month, pd.Series(dtype=str))
+    final['lark_record_id'] = df_raw.get('_lark_record_id', pd.Series(dtype=str))
+    final['channel_name']   = df_raw[c_nguon]
+    final['platform']       = df_raw[c_nguon].apply(classify_platform)
+    final['week_label']     = df_raw.get(c_week, pd.Series(dtype=str)).fillna('').astype(str)
+    final['month_label']    = (
+        df_raw.get(c_month, pd.Series(dtype=str))
         .fillna('').astype(str)
         .str.replace('Tháng ', 'T', regex=False)
     )
     final['log_date'] = (
-        pd.to_datetime(df_filtered[c_ngay], unit='ms', errors='coerce', utc=True)
+        pd.to_datetime(df_raw[c_ngay], unit='ms', errors='coerce', utc=True)
         .dt.tz_convert('Asia/Ho_Chi_Minh')
         .dt.date
     )
     final['revenue'] = (
-        pd.to_numeric(df_filtered.get(c_tien, 0), errors='coerce')
+        pd.to_numeric(df_raw.get(c_tien, 0), errors='coerce')
         .fillna(0).astype(float)
     )
-    b = pd.to_numeric(df_filtered.get(c_box, 0),    errors='coerce').fillna(0)
-    r = pd.to_numeric(df_filtered.get(c_router, 0), errors='coerce').fillna(0)
-    final['order_count'] = (b + r).astype(int)
-    final['created_at']  = datetime.now()
 
-    return final.drop_duplicates()
+    # Số THIẾT BỊ (box + router) — giữ riêng, KHÔNG dùng làm số đơn
+    b = pd.to_numeric(df_raw.get(c_box, 0),    errors='coerce').fillna(0)
+    r = pd.to_numeric(df_raw.get(c_router, 0), errors='coerce').fillna(0)
+    final['device_count'] = (b + r).astype(int)
+
+    # Số ĐƠN = mỗi dòng trong Lark là 1 đơn hàng → đếm bằng 1
+    final['order_count'] = 1
+
+    final['created_at'] = datetime.now()
+
+    # Dedup theo khóa duy nhất của Lark (KHÔNG dedup trên toàn bộ giá trị)
+    if final['lark_record_id'].notna().any():
+        final = final.drop_duplicates(subset=['lark_record_id'])
+    else:
+        final = final.drop_duplicates(
+            subset=['channel_name', 'log_date', 'revenue', 'device_count']
+        )
+
+    # Báo cáo dòng bất thường để soi tay
+    n_ambig = (final['platform'] == 'AMBIGUOUS').sum()
+    n_none  = (final['platform'] == '').sum()
+    if n_ambig:
+        print(f"   ⚠️  {n_ambig} dòng khớp CẢ TikTok lẫn Instagram (AMBIGUOUS, không đếm 2 lần).")
+    if n_none:
+        print(f"   ⚠️  {n_none} dòng KHÔNG khớp platform nào (nguồn khách lạ, cần kiểm tra).")
+
+    return final
 
 
 # ─────────────────────────────────────────────────────────────
-# BƯỚC 3: Load vào một bảng Supabase
+# BƯỚC 4: Load vào một bảng Supabase
 # ─────────────────────────────────────────────────────────────
 def load_to_db(engine, df, table_name):
     if df.empty:
@@ -123,21 +165,22 @@ def main():
 
     print(f"✅ Lark trả về {len(df_raw)} dòng tổng cộng.")
 
-    # ── TikTok (giữ nguyên như cũ) ──────────────────────────
-    print("\n[1/2] Xử lý dữ liệu TIKTOK...")
-    df_tiktok = normalize_df(df_raw, platform_tag='Tiktok')
-    print(f"      → {len(df_tiktok)} dòng TikTok")
+    df_all = normalize_all(df_raw)
+    if df_all.empty:
+        print("❌ Không chuẩn hóa được dữ liệu."); return
 
-    # ── Instagram (mới) ─────────────────────────────────────
-    print("\n[2/2] Xử lý dữ liệu INSTAGRAM...")
-    df_instagram = normalize_df(df_raw, platform_tag='Instagram')
-    print(f"      → {len(df_instagram)} dòng Instagram")
+    df_tiktok    = df_all[df_all['platform'] == 'Tiktok'].copy()
+    df_instagram = df_all[df_all['platform'] == 'Instagram'].copy()
 
-    # ── Đẩy lên Supabase ────────────────────────────────────
+    print(f"\n[1/2] TikTok:    {len(df_tiktok)} dòng")
+    print(f"[2/2] Instagram: {len(df_instagram)} dòng")
+    print(f"   Σ revenue TikTok:    {df_tiktok['revenue'].sum():,.0f}")
+    print(f"   Σ revenue Instagram: {df_instagram['revenue'].sum():,.0f}")
+
     try:
         engine = create_engine(DB_CONN)
         print("\n📦 Đang nạp vào Supabase...")
-        load_to_db(engine, df_tiktok,   'business_performance')
+        load_to_db(engine, df_tiktok,    'business_performance')
         load_to_db(engine, df_instagram, 'instagram_performance')
         print("\n--- ✅ KẾT THÚC CÔNG VIỆC! DỮ LIỆU ĐÃ SẴN SÀNG ---")
     except Exception as e:
