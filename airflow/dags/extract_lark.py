@@ -298,9 +298,11 @@ def main():
     
     print("📥 Lấy dữ liệu bảng mới...")
     df_raw_new = get_lark_data(URL_NEW)
+    print(f"👉 [DEBUG] Bảng mới lấy được {len(df_raw_new)} dòng dữ liệu từ API.")
     
     # Đổi tên cột cho bảng mới để khớp với logic hiện tại
     if not df_raw_new.empty:
+        print(f"👉 [DEBUG] Tên các cột của bảng mới: {list(df_raw_new.columns)}")
         df_raw_new = df_raw_new.rename(columns={
             "Số tiền": "Tổng tiền bán",
             "Tuần": "Tuần ttrong tháng",
@@ -317,6 +319,7 @@ def main():
 
     df_raw = pd.concat(dfs, ignore_index=True)
     print(f"✅ Lark trả về {len(df_raw)} dòng tổng cộng.")
+    print(f"👉 [DEBUG] Bảng cũ góp {len(df_raw_old)} dòng, bảng mới góp {len(df_raw_new)} dòng.")
 
     df_all = normalize_all(df_raw)
     if df_all.empty:
