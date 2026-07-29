@@ -300,7 +300,11 @@ def main():
     
     # Đổi tên cột cho bảng mới để khớp với logic hiện tại
     if not df_raw_new.empty:
-        df_raw_new = df_raw_new.rename(columns={"Số tiền": "Tổng tiền bán"})
+        df_raw_new = df_raw_new.rename(columns={
+            "Số tiền": "Tổng tiền bán",
+            "Tuần": "Tuần ttrong tháng",
+            "Ngày thanh toán": "Ngày mua"
+        })
         
     dfs = []
     if not df_raw_old.empty: dfs.append(df_raw_old)
