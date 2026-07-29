@@ -280,6 +280,7 @@ def main():
     df_raw = get_lark_data(URL_ACTUAL)
     if df_raw.empty:
         print("❌ API không trả về dữ liệu."); return
+        sys.exit(1)
 
     print(f"✅ Lark trả về {len(df_raw)} dòng tổng cộng.")
 
