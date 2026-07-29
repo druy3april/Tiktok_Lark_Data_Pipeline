@@ -11,7 +11,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 HEADERS = {'Authorization': f"Bearer {os.getenv('LARK_API_TOKEN')}"}
-URL_ACTUAL = "https://media-admin.genfarmer.com/get_data?table_id=tblqy8l657mdlv9H"
+URL_OLD = "https://media-admin.genfarmer.com/get_data?table_id=tblqy8l657mdlv9H"
+URL_NEW = "https://media-admin.genfarmer.com/get_data?table_id=tblD19qpIzx3X9wS"
 DB_CONN = os.getenv('SUPABASE_DB_URL')
 
 
@@ -104,7 +105,21 @@ def clean_channel_name(nguon: str) -> str:
     """
     s = str(nguon or '').strip()
     cleaned = RE_STRIP_TAG.sub('', s).strip()
-    return cleaned if cleaned else s
+    
+    if not cleaned:
+        cleaned = s
+        
+    # Map tên kênh (alias) để đồng nhất giữa bảng mới và cũ
+    alias_map = {
+        "rick": "Quang Vũ",
+        "linh": "N.D.K.Linh",
+    }
+    
+    lower_cleaned = cleaned.lower()
+    if lower_cleaned in alias_map:
+        return alias_map[lower_cleaned]
+        
+    return cleaned
 
 
 # ─────────────────────────────────────────────────────────────
@@ -118,7 +133,7 @@ def normalize_all(df_raw):
         return next((c for c in df_raw.columns if any(k in str(c) for k in kws)), None)
 
     c_nguon  = find_col(['Nguồn khách'])
-    c_tien   = find_col(['Đã thu Tổng cộng', 'revenue'])
+    c_tien   = find_col(['Tổng tiền bán', 'revenue'])
     c_box    = find_col(['Số Box'])
     c_router = find_col(['Số Router'])
     c_ngay   = find_col(['Ngày mua', 'log_date'])
@@ -278,16 +293,35 @@ def load_to_db(engine, df, table_name):
 def main():
     print("--- 🚀 ĐANG TRIỂN KHAI CHIẾN DỊCH CHỐT HẠ ---")
 
-    df_raw = get_lark_data(URL_ACTUAL)
-    if df_raw.empty:
+    print("📥 Lấy dữ liệu bảng cũ...")
+    df_raw_old = get_lark_data(URL_OLD)
+    
+    print("📥 Lấy dữ liệu bảng mới...")
+    df_raw_new = get_lark_data(URL_NEW)
+    
+    # Đổi tên cột cho bảng mới để khớp với logic hiện tại
+    if not df_raw_new.empty:
+        df_raw_new = df_raw_new.rename(columns={
+            "Số tiền": "Tổng tiền bán",
+            "Tuần": "Tuần ttrong tháng",
+            "Ngày thanh toán": "Ngày mua"
+        })
+        
+    dfs = []
+    if not df_raw_old.empty: dfs.append(df_raw_old)
+    if not df_raw_new.empty: dfs.append(df_raw_new)
+
+    if not dfs:
         print("❌ API không trả về dữ liệu."); return
         sys.exit(1)
 
+    df_raw = pd.concat(dfs, ignore_index=True)
     print(f"✅ Lark trả về {len(df_raw)} dòng tổng cộng.")
 
     df_all = normalize_all(df_raw)
     if df_all.empty:
         print("❌ Không chuẩn hóa được dữ liệu."); return
+        sys.exit(1)
 
     # LOẠI dòng không rõ nền tảng khỏi báo cáo (theo yêu cầu).
     n_all = len(df_all)
