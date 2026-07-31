@@ -141,9 +141,12 @@ def clean_channel_name(nguon: str) -> str:
         cleaned = s
         
     # Map tên kênh (alias) để đồng nhất giữa bảng mới và cũ
+    # Map tên kênh (alias) để đồng nhất giữa bảng mới và cũ
     alias_map = {
         "rick": "Quang Vũ",
         "linh": "N.D.K.Linh",
+        "lynette": "Lynette",   # Bắt chuẩn tên từ bảng Mới (IG Lynette)
+        "instgaram lynette": "Lynette" # Bắt luôn cả lỗi gõ sai chính tả "Instgaram" ở bảng Cũ
     }
     
     lower_cleaned = cleaned.lower()
@@ -179,6 +182,7 @@ def normalize_all(df_raw):
     s_ngay   = get_coalesced_series(['ngày mua', 'log_date', 'ngày thanh toán'])
     s_week   = get_coalesced_series(['tuần'])
     s_month  = get_coalesced_series(['tháng', 'month'])
+    s_ma_don = get_coalesced_series(['mã đơn hàng', 'bill id'])
 
     if s_nguon.isna().all() or (s_nguon == '').all():
         print("⚠️  Không tìm thấy dữ liệu 'Nguồn khách' trong data Lark.")
@@ -191,6 +195,7 @@ def normalize_all(df_raw):
     final['channel_raw']    = s_nguon                          # nguồn gốc (soi lỗi)
     final['channel_name']   = s_nguon.apply(clean_channel_name) # tên kênh sạch (bỏ tag)
     final['platform']       = s_nguon.apply(classify_platform)
+    final['order_code']     = s_ma_don.fillna('').astype(str).str.strip()
     
     # --- FALLBACK PLATFORM ---
     # Nếu kênh không có tag nền tảng (bị phân loại là 'unknown')
@@ -266,8 +271,14 @@ def normalize_all(df_raw):
 
     final['created_at'] = datetime.now()
 
-    n_before = len(final)
-    # ── DEDUP nhiều lớp (chống nhân đôi do region global/sg trùng) ──
+n_before = len(final)
+
+    # ── DEDUP nhiều lớp (chống nhân đôi do region global/sg trùng hoặc trùng 2 bảng) ──
+    # Lớp 0: Lọc trùng theo Mã đơn hàng (Loại bỏ triệt để đơn copy qua lại giữa 2 bảng)
+    has_order_code = final['order_code'] != ''
+    if has_order_code.any():
+        final = final.drop_duplicates(subset=['order_code'], keep='last')
+
     # Lớp 1: theo record_id của Lark (nếu có giá trị)
     has_rid = final['lark_record_id'].notna() & (final['lark_record_id'].astype(str).str.len() > 0)
     if has_rid.any():
