@@ -12,7 +12,7 @@ load_dotenv()
 
 HEADERS = {'Authorization': f"Bearer {os.getenv('LARK_API_TOKEN')}"}
 URL_OLD = "https://media-admin.genfarmer.com/get_data?table_id=tblqy8l657mdlv9H"
-URL_NEW = "https://media-admin.genfarmer.com/get_data?table_id=tblD19qpIzx3X9wS"
+URL_NEW = "https://media-admin.genfarmer.com/get_data?table_id=tblD19qpIzx3X9wS&base_id=Xfz8bJ3mOa6mgwsOZ4Au29iWsff"
 DB_CONN = os.getenv('SUPABASE_DB_URL')
 
 
