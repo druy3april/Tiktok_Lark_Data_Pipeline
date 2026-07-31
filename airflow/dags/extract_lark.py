@@ -23,54 +23,59 @@ DB_CONN = os.getenv('SUPABASE_DB_URL')
 def get_lark_data(url):
     print(f"📡 Đang gọi API Lark: {url[:60]}...")
     response = requests.get(url, headers=HEADERS, timeout=60)
+    
     if response.status_code != 200:
-        print(f"❌ Lỗi API status code: {response.status_code}")
+        print(f"❌ Lỗi API HTTP {response.status_code}: {response.text[:200]}")
         return pd.DataFrame()
 
     data = response.json()
     all_records = []
     seen_ids = set()
 
-    # TH 1: Cấu trúc cũ (có 'sources' -> 'global' / 'sg')
+    # TH 1: Cấu trúc chứa 'sources' (Bảng cũ)
     if isinstance(data, dict) and 'sources' in data:
         sources = data['sources']
         for region in ['global', 'sg']:
             if region in sources and isinstance(sources[region], list):
                 for item in sources[region]:
-                    fields = dict(item.get('fields', item))
-                    rid = item.get('record_id') or item.get('id')
-                    if rid is not None:
-                        if rid in seen_ids:
-                            continue
+                    fields = dict(item.get('fields', item)) if isinstance(item, dict) else item
+                    rid = item.get('record_id') or item.get('id') if isinstance(item, dict) else None
+                    if rid and rid in seen_ids:
+                        continue
+                    if rid:
                         seen_ids.add(rid)
                         fields['_lark_record_id'] = rid
                     all_records.append(fields)
 
-    # TH 2: Cấu trúc mới (Ví dụ: data trả về là mảng danh sách trực tiếp [...])
+    # TH 2: API trả về mảng trực tiếp [...]
     elif isinstance(data, list):
         for item in data:
             fields = dict(item.get('fields', item)) if isinstance(item, dict) else item
             rid = item.get('record_id') or item.get('id') if isinstance(item, dict) else None
-            if rid is not None:
-                if rid in seen_ids:
-                    continue
+            if rid and rid in seen_ids:
+                continue
+            if rid:
                 seen_ids.add(rid)
                 fields['_lark_record_id'] = rid
             all_records.append(fields)
 
-    # TH 3: Cấu trúc chứa data trong key 'items' hoặc 'data'
+    # TH 3: API trả về dict dạng {'data': [...]} hoặc {'items': [...]}
     elif isinstance(data, dict):
-        items = data.get('items') or data.get('data') or data.get('records') or []
+        items = data.get('data') or data.get('items') or data.get('records') or []
         if isinstance(items, list):
             for item in items:
                 fields = dict(item.get('fields', item)) if isinstance(item, dict) else item
                 rid = item.get('record_id') or item.get('id') if isinstance(item, dict) else None
-                if rid is not None:
-                    if rid in seen_ids:
-                        continue
+                if rid and rid in seen_ids:
+                    continue
+                if rid:
                     seen_ids.add(rid)
                     fields['_lark_record_id'] = rid
                 all_records.append(fields)
+
+    # In log kiểm tra cấu trúc JSON thực tế nếu vẫn ra 0 dòng
+    if not all_records:
+        print(f"👉 [DEBUG JSON Structure]: kiểu dữ liệu={type(data)}, keys={data.keys() if isinstance(data, dict) else 'N/A'}")
 
     return pd.DataFrame(all_records)
 
