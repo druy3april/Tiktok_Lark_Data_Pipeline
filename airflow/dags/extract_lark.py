@@ -273,19 +273,9 @@ def normalize_all(df_raw):
 
     n_before = len(final)
 
-    # ── DEDUP nhiều lớp (chống nhân đôi do region global/sg trùng hoặc trùng 2 bảng) ──
+    # ── DEDUP (Đã bỏ lọc theo Mã đơn/Bill ID vì data bị rác) ──
     
-    # Lớp 0: Lọc trùng theo Mã đơn hàng (Chỉ lọc những đơn CÓ mã)
-    mask_has_code = final['order_code'] != ''
-    if mask_has_code.any():
-        # Lọc trùng các đơn có mã
-        df_with_code = final[mask_has_code].drop_duplicates(subset=['order_code'], keep='last')
-        # Giữ nguyên các đơn không có mã
-        df_without_code = final[~mask_has_code]
-        # Gộp lại
-        final = pd.concat([df_with_code, df_without_code], ignore_index=True)
-
-    # Lớp 1: theo record_id của Lark (nếu có giá trị)
+    # Chỉ lọc trùng duy nhất theo record_id nội bộ của Lark
     has_rid = final['lark_record_id'].notna() & (final['lark_record_id'].astype(str).str.len() > 0)
     if has_rid.any():
         with_id    = final[has_rid].drop_duplicates(subset=['lark_record_id'])
@@ -295,7 +285,7 @@ def normalize_all(df_raw):
         # Không có record_id → dedup theo toàn bộ dòng để tránh mất đơn hợp lệ
         final = final.drop_duplicates()
 
-    # Dùng xong để lọc trùng thì xóa cột này đi để Supabase không báo lỗi
+    # Xóa cột order_code đi để Supabase không báo lỗi
     if 'order_code' in final.columns:
         final = final.drop(columns=['order_code'])
 
