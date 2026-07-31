@@ -274,32 +274,26 @@ def normalize_all(df_raw):
     n_before = len(final)
 
     # ── DEDUP nhiều lớp (chống nhân đôi do region global/sg trùng hoặc trùng 2 bảng) ──
-    # Lớp 0: Lọc trùng theo Mã đơn hàng (Loại bỏ triệt để đơn copy qua lại giữa 2 bảng)
-    has_order_code = final['order_code'] != ''
-    if has_order_code.any():
-        final = final.drop_duplicates(subset=['order_code'], keep='last')
+    
+    # Lớp 0: Lọc trùng theo Mã đơn hàng (Chỉ lọc những đơn CÓ mã)
+    mask_has_code = final['order_code'] != ''
+    if mask_has_code.any():
+        # Lọc trùng các đơn có mã
+        df_with_code = final[mask_has_code].drop_duplicates(subset=['order_code'], keep='last')
+        # Giữ nguyên các đơn không có mã
+        df_without_code = final[~mask_has_code]
+        # Gộp lại
+        final = pd.concat([df_with_code, df_without_code], ignore_index=True)
 
     # Lớp 1: theo record_id của Lark (nếu có giá trị)
     has_rid = final['lark_record_id'].notna() & (final['lark_record_id'].astype(str).str.len() > 0)
     if has_rid.any():
         with_id    = final[has_rid].drop_duplicates(subset=['lark_record_id'])
-        # KHÔNG dedup mù quáng trên without_id chỉ với vài cột, dễ làm mất đơn trùng hợp (cùng ngày, kênh, tiền)
         without_id = final[~has_rid].drop_duplicates()
         final = pd.concat([with_id, without_id], ignore_index=True)
     else:
         # Không có record_id → dedup theo toàn bộ dòng để tránh mất đơn hợp lệ
         final = final.drop_duplicates()
-
-    # Báo cáo dòng bất thường để soi tay
-    print(f"   🔁 Dedup: {n_before} → {len(final)} dòng (loại {n_before - len(final)} trùng).")
-    # Báo cáo phân bố platform để soi tay
-    dist = final['platform'].value_counts().to_dict()
-    print(f"   📊 Phân bố nền tảng: {dist}")
-    n_unknown = (final['platform'] == 'unknown').sum()
-    if n_unknown:
-        mau = final.loc[final['platform'] == 'unknown', 'channel_raw'].unique()[:10]
-        print(f"   🗑  {n_unknown} dòng KHÔNG có tag tiktok/ig → SẼ BỊ LOẠI khỏi báo cáo.")
-        print(f"      Ví dụ nguồn bị loại: {list(mau)}")
 
     # Dùng xong để lọc trùng thì xóa cột này đi để Supabase không báo lỗi
     if 'order_code' in final.columns:
