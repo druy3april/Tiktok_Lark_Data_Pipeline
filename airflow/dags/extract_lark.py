@@ -96,10 +96,21 @@ RE_STRIP_TAG = re.compile(
 def classify_platform(nguon: str) -> str:
     """Phân loại nền tảng theo TAG trong nguồn khách.
 
-    Trả về đúng 1 trong: 'Tiktok', 'Instagram', 'Unknown'.
-    'Unknown' = không có tag rõ ràng → sẽ bị loại khỏi báo cáo.
+    Trả về đúng 1 trong: 'tiktok', 'instagram', 'unknown'.
+    'unknown' = không có tag rõ ràng → sẽ bị loại khỏi báo cáo.
     """
-    s = str(nguon or '')
+    s = str(nguon or '').strip()
+    
+    # 1. Kiểm tra bằng RE_STRIP_TAG ở đầu chuỗi (bắt tốt các trường hợp dính chữ như IGLynette)
+    m = RE_STRIP_TAG.match(s)
+    if m:
+        prefix = m.group(0).lower()
+        if any(k in prefix for k in ['ig', 'insta', 'instagram', 'reel']):
+            return 'instagram'
+        if any(k in prefix for k in ['tt', 'tiktok', 'tik', 'douyin']):
+            return 'tiktok'
+
+    # 2. Fallback: tìm kiếm tag ở bất kỳ đâu trong chuỗi
     is_tt = bool(RE_TIKTOK.search(s))
     is_ig = bool(RE_INSTAGRAM.search(s))
 
@@ -149,31 +160,53 @@ def normalize_all(df_raw):
     if df_raw.empty:
         return pd.DataFrame()
 
-    def find_col(kws):
-        return next((c for c in df_raw.columns if any(k in str(c) for k in kws)), None)
+    def get_coalesced_series(kws):
+        kws_lower = [k.lower() for k in kws]
+        matched_cols = [c for c in df_raw.columns if any(k in str(c).lower() for k in kws_lower)]
+        if not matched_cols:
+            return pd.Series(pd.NA, index=df_raw.index)
+        
+        s = df_raw[matched_cols[0]].copy()
+        for col in matched_cols[1:]:
+            mask = s.isna() | (s == '')
+            s.loc[mask] = df_raw[col].loc[mask]
+        return s
 
-    c_nguon  = find_col(['Nguồn khách'])
-    c_tien   = find_col(['Tổng tiền bán', 'revenue'])
-    c_box    = find_col(['Số Box'])
-    c_router = find_col(['Số Router'])
-    c_ngay   = find_col(['Ngày mua', 'log_date'])
-    c_week   = find_col(['Tuần ttrong tháng'])
-    c_month  = find_col(['Tháng'])
+    s_nguon  = get_coalesced_series(['nguồn khách', 'nguon khach', 'channel'])
+    s_tien   = get_coalesced_series(['tổng tiền bán', 'revenue', 'số tiền'])
+    s_box    = get_coalesced_series(['số box', 'so box'])
+    s_router = get_coalesced_series(['số router', 'so router'])
+    s_ngay   = get_coalesced_series(['ngày mua', 'log_date', 'ngày thanh toán'])
+    s_week   = get_coalesced_series(['tuần'])
+    s_month  = get_coalesced_series(['tháng', 'month'])
 
-    if not c_nguon:
-        print("⚠️  Không tìm thấy cột 'Nguồn khách' trong data Lark.")
+    if s_nguon.isna().all() or (s_nguon == '').all():
+        print("⚠️  Không tìm thấy dữ liệu 'Nguồn khách' trong data Lark.")
         return pd.DataFrame()
 
-    df_raw[c_nguon] = df_raw[c_nguon].fillna('').astype(str)
+    s_nguon = s_nguon.fillna('').astype(str)
 
     final = pd.DataFrame()
     final['lark_record_id'] = df_raw.get('_lark_record_id', pd.Series(dtype=str))
-    final['channel_raw']    = df_raw[c_nguon]                          # nguồn gốc (soi lỗi)
-    final['channel_name']   = df_raw[c_nguon].apply(clean_channel_name) # tên kênh sạch (bỏ tag)
-    final['platform']       = df_raw[c_nguon].apply(classify_platform)
-    final['week_label']     = df_raw.get(c_week, pd.Series(dtype=str)).fillna('').astype(str)
+    final['channel_raw']    = s_nguon                          # nguồn gốc (soi lỗi)
+    final['channel_name']   = s_nguon.apply(clean_channel_name) # tên kênh sạch (bỏ tag)
+    final['platform']       = s_nguon.apply(classify_platform)
+    
+    # --- FALLBACK PLATFORM ---
+    # Nếu kênh không có tag nền tảng (bị phân loại là 'unknown')
+    # nhưng chúng ta biết chắc chắn kênh đó thuộc nền tảng nào
+    known_platform_map = {
+        'lynette': 'instagram',
+        # Có thể thêm các kênh khác vào đây nếu cần (tên viết thường)
+    }
+    mask_unknown = final['platform'] == 'unknown'
+    if mask_unknown.any():
+        fallback_platforms = final.loc[mask_unknown, 'channel_name'].str.lower().map(known_platform_map)
+        final.loc[mask_unknown, 'platform'] = fallback_platforms.fillna('unknown')
+
+    final['week_label']     = s_week.fillna('').astype(str)
     final['month_label']    = (
-        df_raw.get(c_month, pd.Series(dtype=str))
+        s_month
         .fillna('').astype(str)
         .str.replace('Tháng ', 'T', regex=False)
     )
@@ -183,17 +216,21 @@ def normalize_all(df_raw):
     def _parse_ngay_mua(series):
         raw = series.copy()
         num = pd.to_numeric(raw, errors='coerce')
-        # Ngưỡng ~ epoch ms hợp lệ (sau năm 2001). Dưới ngưỡng coi như KHÔNG phải ms.
-        is_ms = num.notna() & (num > 1_000_000_000_000)
+        # Ngưỡng epoch ms hợp lệ (> 1_000_000_000_000). Epoch giây hợp lệ (> 1_000_000_000)
+        is_epoch = num.notna() & (num > 1_000_000_000)
+        is_ms = is_epoch & (num > 1_000_000_000_000)
+        is_s = is_epoch & ~is_ms
 
         out = pd.Series(pd.NaT, index=raw.index, dtype='datetime64[ns, UTC]')
         # (a) epoch ms
         if is_ms.any():
-            out.loc[is_ms] = pd.to_datetime(
-                num[is_ms], unit='ms', errors='coerce', utc=True
-            )
+            out.loc[is_ms] = pd.to_datetime(num[is_ms], unit='ms', errors='coerce', utc=True)
+        # (a2) epoch s
+        if is_s.any():
+            out.loc[is_s] = pd.to_datetime(num[is_s], unit='s', errors='coerce', utc=True)
+            
         # (b) chuỗi ngày "dd/mm/yyyy" (và các định dạng ngày thường), ưu tiên ngày trước
-        mask_str = ~is_ms
+        mask_str = ~is_epoch
         if mask_str.any():
             svals = raw[mask_str].astype(str).str.strip()
             # ISO yyyy-mm-dd: để pandas tự nhận (không dayfirst)
@@ -210,18 +247,18 @@ def normalize_all(df_raw):
         return out
 
     final['log_date'] = (
-        _parse_ngay_mua(df_raw[c_ngay])
+        _parse_ngay_mua(s_ngay)
         .dt.tz_convert('Asia/Ho_Chi_Minh')
         .dt.date
     )
     final['revenue'] = (
-        pd.to_numeric(df_raw.get(c_tien, 0), errors='coerce')
+        pd.to_numeric(s_tien, errors='coerce')
         .fillna(0).astype(float)
     )
 
     # Số THIẾT BỊ (box + router) — giữ riêng, KHÔNG dùng làm số đơn
-    b = pd.to_numeric(df_raw.get(c_box, 0),    errors='coerce').fillna(0)
-    r = pd.to_numeric(df_raw.get(c_router, 0), errors='coerce').fillna(0)
+    b = pd.to_numeric(s_box,    errors='coerce').fillna(0)
+    r = pd.to_numeric(s_router, errors='coerce').fillna(0)
     final['device_count'] = (b + r).astype(int)
 
     # Số ĐƠN = mỗi dòng trong Lark là 1 đơn hàng → đếm bằng 1
@@ -235,15 +272,12 @@ def normalize_all(df_raw):
     has_rid = final['lark_record_id'].notna() & (final['lark_record_id'].astype(str).str.len() > 0)
     if has_rid.any():
         with_id    = final[has_rid].drop_duplicates(subset=['lark_record_id'])
-        without_id = final[~has_rid].drop_duplicates(
-            subset=['platform', 'channel_name', 'log_date', 'revenue', 'device_count']
-        )
+        # KHÔNG dedup mù quáng trên without_id chỉ với vài cột, dễ làm mất đơn trùng hợp (cùng ngày, kênh, tiền)
+        without_id = final[~has_rid].drop_duplicates()
         final = pd.concat([with_id, without_id], ignore_index=True)
     else:
-        # Không có record_id → dedup theo tổ hợp khóa nghiệp vụ
-        final = final.drop_duplicates(
-            subset=['platform', 'channel_name', 'log_date', 'revenue', 'device_count']
-        )
+        # Không có record_id → dedup theo toàn bộ dòng để tránh mất đơn hợp lệ
+        final = final.drop_duplicates()
 
     # Báo cáo dòng bất thường để soi tay
     print(f"   🔁 Dedup: {n_before} → {len(final)} dòng (loại {n_before - len(final)} trùng).")
