@@ -301,6 +301,13 @@ def normalize_all(df_raw):
         print(f"   🗑  {n_unknown} dòng KHÔNG có tag tiktok/ig → SẼ BỊ LOẠI khỏi báo cáo.")
         print(f"      Ví dụ nguồn bị loại: {list(mau)}")
 
+    # Dùng xong để lọc trùng thì xóa cột này đi để Supabase không báo lỗi
+    if 'order_code' in final.columns:
+        final = final.drop(columns=['order_code'])
+
+    n_after = len(final)
+    print(f"👉 [DEBUG] Dedup: {n_before} → {n_after} dòng (loại {n_before - n_after} trùng)")
+
     return final
 
 
