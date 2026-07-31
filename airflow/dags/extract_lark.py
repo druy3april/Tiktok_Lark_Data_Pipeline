@@ -271,7 +271,7 @@ def normalize_all(df_raw):
 
     final['created_at'] = datetime.now()
 
-n_before = len(final)
+    n_before = len(final)
 
     # ── DEDUP nhiều lớp (chống nhân đôi do region global/sg trùng hoặc trùng 2 bảng) ──
     # Lớp 0: Lọc trùng theo Mã đơn hàng (Loại bỏ triệt để đơn copy qua lại giữa 2 bảng)
