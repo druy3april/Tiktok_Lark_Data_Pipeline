@@ -191,6 +191,7 @@ def normalize_all(df_raw):
     s_nguon = s_nguon.fillna('').astype(str)
 
     final = pd.DataFrame()
+    final['product_type']   = df_raw.get('product_type', 'Unknown')
     final['lark_record_id'] = df_raw.get('_lark_record_id', pd.Series(dtype=str))
     final['channel_raw']    = s_nguon                          # nguồn gốc (soi lỗi)
     final['channel_name']   = s_nguon.apply(clean_channel_name) # tên kênh sạch (bỏ tag)
@@ -315,6 +316,7 @@ def ensure_schema(engine):
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS lark_record_id TEXT', t);
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS week_label     TEXT', t);
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS month_label    TEXT', t);
+            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS product_type   TEXT', t);
         END LOOP;
     END $$;
     """
@@ -366,8 +368,13 @@ def main():
         })
         
     dfs = []
-    if not df_raw_old.empty: dfs.append(df_raw_old)
-    if not df_raw_new.empty: dfs.append(df_raw_new)
+    if not df_raw_old.empty:
+        df_raw_old['product_type'] = 'Genfarmer'  # Bảng cũ 9H
+        dfs.append(df_raw_old)
+
+    if not df_raw_new.empty:
+        df_raw_new['product_type'] = 'Package'    # Bảng mới wS
+        dfs.append(df_raw_new)
 
     if not dfs:
         print("❌ API không trả về dữ liệu."); return
