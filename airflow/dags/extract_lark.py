@@ -13,8 +13,19 @@ load_dotenv()
 HEADERS = {'Authorization': f"Bearer {os.getenv('LARK_API_TOKEN')}"}
 URL_OLD = "https://media-admin.genfarmer.com/get_data?table_id=tblqy8l657mdlv9H"
 URL_NEW = "https://media-admin.genfarmer.com/get_data?table_id=tblD19qpIzx3X9wS&base_id=Xfz8bJ3mOa6mgwsOZ4Au29iWsff"
+URL_SALE_CLOUD_PHONE = "https://media-admin.genfarmer.com/get_data?table_id=tblbzgX8kX6Wz6cJ&base_id=Xfz8bJ3mOa6mgwsOZ4Au29iWsff"
 DB_CONN = os.getenv('SUPABASE_DB_URL')
 
+df_old = get_lark_data(URL_OLD)
+df_new = get_lark_data(URL_NEW)
+df_sale_cloud_phone = get_lark_data(URL_SALE_CLOUD_PHONE) # Kéo data từ bảng Sales cloudphone
+
+# Gộp các dataframe lại
+all_data_frames = [df_old, df_new, df_sale_cloud_phone]
+valid_dfs = [df for df in all_data_frames if not df.empty]
+
+if valid_dfs:
+    final_df = pd.concat(valid_dfs, ignore_index=True)
 
 # ─────────────────────────────────────────────────────────────
 # BƯỚC 1: Kéo toàn bộ data từ Lark
@@ -67,6 +78,19 @@ def get_lark_data(url):
                 all_records.append(fields)
 
     return pd.DataFrame(all_records)
+
+df_old = get_lark_data(URL_OLD)
+df_new = get_lark_data(URL_NEW)
+df_sale_cloud_phone = get_lark_data(URL_SALE_CLOUD_PHONE)
+
+# Gộp các dataframe lại
+all_data_frames = [df_old, df_new, df_sale_cloud_phone]
+valid_dfs = [df for df in all_data_frames if not df.empty]
+
+if valid_dfs:
+    df_raw = pd.concat(valid_dfs, ignore_index=True)
+else:
+    df_raw = pd.DataFrame()
 
 # ─────────────────────────────────────────────────────────────
 # BƯỚC 2: Tách TAG NỀN TẢNG khỏi "Nguồn khách"
@@ -189,7 +213,7 @@ def normalize_all(df_raw):
         return pd.DataFrame()
 
     s_nguon = s_nguon.fillna('').astype(str)
-
+    
     final = pd.DataFrame()
     final['product_type']   = df_raw.get('product_type', 'Unknown')
     final['lark_record_id'] = df_raw.get('_lark_record_id', pd.Series(dtype=str))
