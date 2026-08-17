@@ -16,17 +16,6 @@ URL_NEW = "https://media-admin.genfarmer.com/get_data?table_id=tblD19qpIzx3X9wS&
 URL_SALE_CLOUD_PHONE = "https://media-admin.genfarmer.com/get_data?table_id=tblbzgX8kX6Wz6cJ&base_id=Xfz8bJ3mOa6mgwsOZ4Au29iWsff"
 DB_CONN = os.getenv('SUPABASE_DB_URL')
 
-df_old = get_lark_data(URL_OLD)
-df_new = get_lark_data(URL_NEW)
-df_sale_cloud_phone = get_lark_data(URL_SALE_CLOUD_PHONE) # Kéo data từ bảng Sales cloudphone
-
-# Gộp các dataframe lại
-all_data_frames = [df_old, df_new, df_sale_cloud_phone]
-valid_dfs = [df for df in all_data_frames if not df.empty]
-
-if valid_dfs:
-    final_df = pd.concat(valid_dfs, ignore_index=True)
-
 # ─────────────────────────────────────────────────────────────
 # BƯỚC 1: Kéo toàn bộ data từ Lark
 #   → Giữ lại record_id (khóa duy nhất) để dedup chính xác
