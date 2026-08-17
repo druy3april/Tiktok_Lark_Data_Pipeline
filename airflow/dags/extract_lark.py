@@ -371,39 +371,45 @@ def load_to_db(engine, df, table_name):
 # ─────────────────────────────────────────────────────────────
 def main():
     print("--- 🚀 ĐANG TRIỂN KHAI CHIẾN DỊCH CHỐT HẠ ---")
-
+    
     print("📥 Lấy dữ liệu bảng cũ...")
     df_raw_old = get_lark_data(URL_OLD)
     
     print("📥 Lấy dữ liệu bảng mới...")
     df_raw_new = get_lark_data(URL_NEW)
+
+    print("📥 Lấy dữ liệu bảng Cloudphone...")
+    df_sale_cloud_phone = get_lark_data(URL_SALE_CLOUD_PHONE)
+
     print(f"👉 [DEBUG] Bảng mới lấy được {len(df_raw_new)} dòng dữ liệu từ API.")
-    
+
     # Đổi tên cột cho bảng mới để khớp với logic hiện tại
     if not df_raw_new.empty:
-        print(f"👉 [DEBUG] Tên các cột của bảng mới: {list(df_raw_new.columns)}")
         df_raw_new = df_raw_new.rename(columns={
             "Số tiền": "Tổng tiền bán",
             "Tuần": "Tuần ttrong tháng",
             "Ngày thanh toán": "Ngày mua"
         })
-        
+
     dfs = []
     if not df_raw_old.empty:
-        df_raw_old['product_type'] = 'Genfarmer'  # Bảng cũ 9H
+        df_raw_old['product_type'] = 'Genfarmer' # Bảng cũ 9H
         dfs.append(df_raw_old)
 
     if not df_raw_new.empty:
-        df_raw_new['product_type'] = 'Package'    # Bảng mới wS
+        df_raw_new['product_type'] = 'Package' # Bảng mới wS
         dfs.append(df_raw_new)
 
+    if not df_sale_cloud_phone.empty:
+        df_sale_cloud_phone['product_type'] = 'Cloudphone' # Bảng Cloudphone mới
+        dfs.append(df_sale_cloud_phone)
+        
     if not dfs:
-        print("❌ API không trả về dữ liệu."); return
-        sys.exit(1)
-
+        print("❌ API không trả về dữ liệu."); return sys.exit(1)
+        
     df_raw = pd.concat(dfs, ignore_index=True)
     print(f"✅ Lark trả về {len(df_raw)} dòng tổng cộng.")
-    print(f"👉 [DEBUG] Bảng cũ góp {len(df_raw_old)} dòng, bảng mới góp {len(df_raw_new)} dòng.")
+    print(f"👉 [DEBUG] Cũ: {len(df_raw_old)} dòng | Mới: {len(df_raw_new)} dòng | Cloudphone: {len(df_sale_cloud_phone)} dòng.")
 
     df_all = normalize_all(df_raw)
     if df_all.empty:
