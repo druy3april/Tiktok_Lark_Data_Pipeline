@@ -69,8 +69,16 @@ def get_lark_data(url):
     return pd.DataFrame(all_records)
 
 df_old = get_lark_data(URL_OLD)
+if not df_old.empty:
+    df_old['product_type'] = 'Genfarmer'  # Gắn tag cho bảng cũ
+
 df_new = get_lark_data(URL_NEW)
+if not df_new.empty:
+    df_new['product_type'] = 'Package'  # Gắn tag cho bảng mới
+
 df_sale_cloud_phone = get_lark_data(URL_SALE_CLOUD_PHONE)
+if not df_sale_cloud_phone.empty:
+    df_sale_cloud_phone['product_type'] = 'Cloudphone'  # Gắn tag cho bảng Sale Cloudphone
 
 # Gộp các dataframe lại
 all_data_frames = [df_old, df_new, df_sale_cloud_phone]
