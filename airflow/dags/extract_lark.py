@@ -14,6 +14,7 @@ HEADERS = {'Authorization': f"Bearer {os.getenv('LARK_API_TOKEN')}"}
 URL_OLD = "https://media-admin.genfarmer.com/get_data?table_id=tblqy8l657mdlv9H"
 URL_NEW = "https://media-admin.genfarmer.com/get_data?table_id=tblD19qpIzx3X9wS&base_id=Xfz8bJ3mOa6mgwsOZ4Au29iWsff"
 URL_SALE_CLOUD_PHONE = "https://media-admin.genfarmer.com/get_data?table_id=tblbzgX8kX6Wz6cJ&base_id=Xfz8bJ3mOa6mgwsOZ4Au29iWsff"
+URL_SMM = "https://media-admin.genfarmer.com/get_data?table_id=tbl1OYUYHDPrE4Q8&base_id=Xfz8bJ3mOa6mgwsOZ4Au29iWsff"
 DB_CONN = os.getenv('SUPABASE_DB_URL')
 
 # ─────────────────────────────────────────────────────────────
@@ -80,8 +81,12 @@ df_sale_cloud_phone = get_lark_data(URL_SALE_CLOUD_PHONE)
 if not df_sale_cloud_phone.empty:
     df_sale_cloud_phone['product_type'] = 'Cloudphone'  # Gắn tag cho bảng Sale Cloudphone
 
+df_smm = get_lark_data(URL_SMM)
+if not df_smm.empty:
+    df_smm['product_type'] = 'SMM'  # Gắn tag cho bảng SMM
+
 # Gộp các dataframe lại
-all_data_frames = [df_old, df_new, df_sale_cloud_phone]
+all_data_frames = [df_old, df_new, df_sale_cloud_phone, df_smm]
 valid_dfs = [df for df in all_data_frames if not df.empty]
 
 if valid_dfs:
@@ -381,11 +386,23 @@ def main():
     print("📥 Lấy dữ liệu bảng Cloudphone...")
     df_sale_cloud_phone = get_lark_data(URL_SALE_CLOUD_PHONE)
 
+    print("📥 Lấy dữ liệu bảng SMM...")
+    df_smm = get_lark_data(URL_SMM)
+
     print(f"👉 [DEBUG] Bảng mới lấy được {len(df_raw_new)} dòng dữ liệu từ API.")
 
     # Đổi tên cột cho bảng mới để khớp với logic hiện tại
     if not df_raw_new.empty:
         df_raw_new = df_raw_new.rename(columns={
+            "Số tiền": "Tổng tiền bán",
+            "Tuần": "Tuần ttrong tháng",
+            "Ngày thanh toán": "Ngày mua"
+        })
+
+    # Bảng SMM cùng base với Package/Cloudphone → áp cùng phép đổi tên cột
+    # (rename bỏ qua cột không tồn tại, không gây lỗi)
+    if not df_smm.empty:
+        df_smm = df_smm.rename(columns={
             "Số tiền": "Tổng tiền bán",
             "Tuần": "Tuần ttrong tháng",
             "Ngày thanh toán": "Ngày mua"
@@ -403,13 +420,17 @@ def main():
     if not df_sale_cloud_phone.empty:
         df_sale_cloud_phone['product_type'] = 'Cloudphone' # Bảng Cloudphone mới
         dfs.append(df_sale_cloud_phone)
-        
+
+    if not df_smm.empty:
+        df_smm['product_type'] = 'SMM' # Bảng SMM mới
+        dfs.append(df_smm)
+
     if not dfs:
         print("❌ API không trả về dữ liệu."); return sys.exit(1)
         
     df_raw = pd.concat(dfs, ignore_index=True)
     print(f"✅ Lark trả về {len(df_raw)} dòng tổng cộng.")
-    print(f"👉 [DEBUG] Cũ: {len(df_raw_old)} dòng | Mới: {len(df_raw_new)} dòng | Cloudphone: {len(df_sale_cloud_phone)} dòng.")
+    print(f"👉 [DEBUG] Cũ: {len(df_raw_old)} dòng | Mới: {len(df_raw_new)} dòng | Cloudphone: {len(df_sale_cloud_phone)} dòng | SMM: {len(df_smm)} dòng.")
 
     df_all = normalize_all(df_raw)
     if df_all.empty:
