@@ -23,7 +23,7 @@ DB_CONN = os.getenv('SUPABASE_DB_URL')
 # ─────────────────────────────────────────────────────────────
 def get_lark_data(url):
     print(f"📡 Đang gọi API Lark: {url[:60]}...")
-    response = requests.get(url, headers=HEADERS, timeout=60)
+    response = requests.get(url, headers=HEADERS, timeout=120)
     if response.status_code != 200:
         print(f"❌ Lỗi API status code: {response.status_code}")
         return pd.DataFrame()
