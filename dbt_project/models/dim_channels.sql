@@ -1,5 +1,8 @@
-{{ config(materialized='table') }}
-
+{{ config(
+    materialized='table',
+    post_hook="ALTER TABLE {{ this }} DISABLE ROW LEVEL SECURITY;"
+) }}
+    
 WITH raw_sales AS (
     SELECT DISTINCT channel_name as sales_name
     FROM {{ source('lark_raw', 'business_performance') }}
