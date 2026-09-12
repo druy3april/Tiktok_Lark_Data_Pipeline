@@ -27,7 +27,7 @@ SELECT
         WHEN sales_name ILIKE 'Tiktok %t' AND sales_name NOT LIKE '%Huy%' THEN '@pdat.genfarmer'
         WHEN sales_name ILIKE '%Thiên%' THEN '@vt.zerotrace'
         ELSE sales_name 
-    END as tiktok_stats_name
+    END as tiktok_stats_name,
 
     CASE 
         -- Các kênh đã được map chuẩn hóa:
