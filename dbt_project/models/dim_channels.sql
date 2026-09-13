@@ -46,6 +46,7 @@ SELECT
         
         -- Các kênh Insta và kênh lẻ khác đang có trong Supabase:
         WHEN sales_name ILIKE '%N.D.K.L%' THEN 'https://xaxqebblrstsaazrqowb.supabase.co/storage/v1/object/public/avatars/20260909-153523.webp'
+        WHEN sales_name ILIKE '%NDKL%' THEN 'https://xaxqebblrstsaazrqowb.supabase.co/storage/v1/object/public/avatars/20260909-153523.webp'
         WHEN sales_name ILIKE '%Quang Vũ%' THEN 'https://xaxqebblrstsaazrqowb.supabase.co/storage/v1/object/public/avatars/20260909-153709.webp'
         WHEN sales_name ILIKE '%Lynette%' THEN 'https://xaxqebblrstsaazrqowb.supabase.co/storage/v1/object/public/avatars/20260909-153652.webp'
         WHEN sales_name ILIKE '%genboxphone%' THEN 'https://xaxqebblrstsaazrqowb.supabase.co/storage/v1/object/public/avatars/20260909-153652.webp'
