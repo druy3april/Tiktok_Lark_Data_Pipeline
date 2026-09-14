@@ -71,6 +71,9 @@ def get_lark_data(url):
 
 df_old = get_lark_data(URL_OLD)
 if not df_old.empty:
+    tracking_col = 'Tracking' if 'Tracking' in df_old.columns else 'tracking'
+    if tracking_col in df_old.columns:
+        df_old = df_old[df_old[tracking_col].astype(str).str.strip() == 'Vừa chốt, cần tạo đơn']
     df_old['product_type'] = 'Genfarmer'  # Gắn tag cho bảng cũ
 
 df_new = get_lark_data(URL_NEW)
