@@ -114,6 +114,15 @@ RE_INSTAGRAM = re.compile(
     re.IGNORECASE
 )
 
+# "Cộng đồng <Tên kênh>" = kênh cộng đồng (Telegram). Chấp nhận viết không dấu / sai dấu:
+#   "Cộng đồng GenFarmer", "cong dong GenFarmer", "Công đồng VIP", "CỘNG ĐỒNG - Box"
+_V_O = '[oóòỏõọôốồổỗộơớờởỡợ]'
+RE_CONG_DONG = re.compile(
+    rf'^\s*c{_V_O}ng\s*[dđ]{_V_O}ng(?![a-zà-ỹ])[\s\-_.:|]*',
+    re.IGNORECASE
+)
+PLATFORM_CONG_DONG = 'telegram'   # mã nội bộ; dashboard hiển thị là "Cộng đồng"
+
 # Pattern để CẮT tag platform ra khỏi đầu chuỗi (lấy phần tên kênh).
 RE_STRIP_TAG = re.compile(
     r'^\s*(?:tiktok|tik[\s\-_.]?tok|tt|douyin|instagram|insta|ig|reels?)'
@@ -125,10 +134,14 @@ RE_STRIP_TAG = re.compile(
 def classify_platform(nguon: str) -> str:
     """Phân loại nền tảng theo TAG trong nguồn khách.
 
-    Trả về đúng 1 trong: 'tiktok', 'instagram', 'unknown'.
+    Trả về đúng 1 trong: 'tiktok', 'instagram', 'telegram' (Cộng đồng), 'unknown'.
     'unknown' = không có tag rõ ràng → sẽ bị loại khỏi báo cáo.
     """
     s = str(nguon or '').strip()
+
+    # 0. "Cộng đồng ..." → kênh cộng đồng (kiểm tra TRƯỚC để "Cộng đồng TT xyz" không bị hiểu là TikTok)
+    if RE_CONG_DONG.match(s):
+        return PLATFORM_CONG_DONG
     
     # 1. Kiểm tra bằng RE_STRIP_TAG ở đầu chuỗi (bắt tốt các trường hợp dính chữ như IGLynette)
     m = RE_STRIP_TAG.match(s)
@@ -164,7 +177,11 @@ def clean_channel_name(nguon: str) -> str:
     Nếu sau khi bỏ tag mà rỗng → giữ nguyên chuỗi gốc để soi tay.
     """
     s = str(nguon or '').strip()
-    cleaned = RE_STRIP_TAG.sub('', s).strip()
+    if RE_CONG_DONG.match(s):
+        # "Cộng đồng GenFarmer" → "GenFarmer"; chỉ ghi "Cộng đồng" thì giữ nguyên
+        cleaned = RE_CONG_DONG.sub('', s).strip() or s
+    else:
+        cleaned = RE_STRIP_TAG.sub('', s).strip()
     
     if not cleaned:
         cleaned = s
@@ -334,10 +351,22 @@ def ensure_schema(engine):
     CREATE TABLE IF NOT EXISTS public.instagram_performance
         (LIKE public.business_performance INCLUDING ALL);
 
+    -- Bảng chung cho các nguồn ngoài TikTok/IG (Cộng đồng, …). Dashboard đã đọc bảng này.
+    CREATE TABLE IF NOT EXISTS public.other_channel_performance (
+        id           bigint generated always as identity primary key,
+        platform     text,
+        channel_name text not null,
+        log_date     date not null,
+        revenue      numeric default 0,
+        order_count  integer default 0,
+        product_type text,
+        created_at   timestamptz default now()
+    );
+
     DO $$
     DECLARE t text;
     BEGIN
-        FOREACH t IN ARRAY ARRAY['business_performance','instagram_performance'] LOOP
+        FOREACH t IN ARRAY ARRAY['business_performance','instagram_performance','other_channel_performance'] LOOP
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS platform       TEXT', t);
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS channel_raw    TEXT', t);
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS device_count   INTEGER DEFAULT 0', t);
@@ -350,7 +379,7 @@ def ensure_schema(engine):
     END $$;
     """
     with engine.connect() as conn:
-        print("   🛠  Đảm bảo schema (tạo bảng IG + thêm cột mới)...")
+        print("   🛠  Đảm bảo schema (bảng IG + bảng nguồn khác + cột mới)...")
         conn.execute(text(ddl))
         conn.commit()
     print("   ✅ Schema sẵn sàng.")
@@ -372,6 +401,22 @@ def load_to_db(engine, df, table_name):
     print(f"   📤 Nạp {len(df)} dòng vào '{table_name}'...")
     df.to_sql(table_name, engine, if_exists='append', index=False, method='multi')
     print(f"   ✅ '{table_name}' hoàn tất.")
+
+
+def load_platform_rows(engine, df, table_name, platform):
+    """Bảng dùng chung nhiều nguồn: XÓA dòng cũ của đúng `platform` rồi nạp lại.
+    Không TRUNCATE để không xóa nhầm dữ liệu nguồn khác. Kỳ này 0 dòng → vẫn xóa dòng cũ
+    (Lark đã bỏ hết đơn của nguồn đó thì dashboard cũng về 0)."""
+    with engine.connect() as conn:
+        res = conn.execute(text(f"DELETE FROM {table_name} WHERE platform = :p"), {"p": platform})
+        conn.commit()
+        print(f"   🧹 Xóa {res.rowcount} dòng cũ platform='{platform}' trong {table_name}")
+    if df.empty:
+        print(f"   ⏭  '{platform}': kỳ này không có dòng nào.")
+        return
+    print(f"   📤 Nạp {len(df)} dòng '{platform}' vào '{table_name}'...")
+    df.to_sql(table_name, engine, if_exists='append', index=False, method='multi')
+    print(f"   ✅ '{platform}' hoàn tất.")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -442,7 +487,7 @@ def main():
 
     # LOẠI dòng không rõ nền tảng khỏi báo cáo (theo yêu cầu).
     n_all = len(df_all)
-    df_known = df_all[df_all['platform'].isin(['tiktok', 'instagram'])].copy()
+    df_known = df_all[df_all['platform'].isin(['tiktok', 'instagram', PLATFORM_CONG_DONG])].copy()
     n_dropped = n_all - len(df_known)
     if n_dropped:
         print(f"\n🗑  Đã loại {n_dropped} dòng 'unknown' khỏi báo cáo.")
@@ -450,19 +495,30 @@ def main():
     # Tách chặt theo nền tảng — mỗi bảng chỉ chứa đúng platform của nó.
     df_tiktok    = df_known[df_known['platform'] == 'tiktok'].copy()
     df_instagram = df_known[df_known['platform'] == 'instagram'].copy()
+    df_congdong  = df_known[df_known['platform'] == PLATFORM_CONG_DONG].copy()
+    # Bảng nguồn khác bắt buộc có ngày → đơn Cộng đồng thiếu "Ngày mua" không nạp được, báo ra để sửa trên Lark
+    _no_date = df_congdong['log_date'].isna()
+    if _no_date.any():
+        print(f"⚠️  {int(_no_date.sum())} đơn Cộng đồng thiếu Ngày mua → bỏ qua: "
+              f"{', '.join(df_congdong.loc[_no_date, 'channel_raw'].astype(str).head(10))}")
+        df_known = df_known.drop(index=df_congdong.index[_no_date])
+        df_congdong = df_congdong[~_no_date]
 
     # Bất biến: không mất, không đếm 2 lần trong phần đã-biết-nền-tảng
-    assert len(df_tiktok) + len(df_instagram) == len(df_known), (
-        f"Mất/nhân đôi dòng khi tách: tiktok={len(df_tiktok)} + "
-        f"insta={len(df_instagram)} != known={len(df_known)}"
+    assert len(df_tiktok) + len(df_instagram) + len(df_congdong) == len(df_known), (
+        f"Mất/nhân đôi dòng khi tách: tiktok={len(df_tiktok)} + insta={len(df_instagram)} "
+        f"+ cộng đồng={len(df_congdong)} != known={len(df_known)}"
     )
 
-    print(f"\n[1/2] TikTok:    {len(df_tiktok)} dòng")
-    print(f"[2/2] Instagram: {len(df_instagram)} dòng")
+    print(f"\n[1/3] TikTok:    {len(df_tiktok)} dòng")
+    print(f"[2/3] Instagram: {len(df_instagram)} dòng")
+    print(f"[3/3] Cộng đồng: {len(df_congdong)} dòng"
+          + (f"  ({', '.join(sorted(df_congdong['channel_name'].astype(str).unique()))})" if len(df_congdong) else ''))
     print(f"   Σ revenue TikTok:    {df_tiktok['revenue'].sum():,.0f}")
     print(f"   Σ revenue Instagram: {df_instagram['revenue'].sum():,.0f}")
+    print(f"   Σ revenue Cộng đồng: {df_congdong['revenue'].sum():,.0f}")
     print(f"   Σ revenue (đã lọc):  {df_known['revenue'].sum():,.0f} "
-          f"(= TikTok + Instagram, KHÔNG gồm Unknown)")
+          f"(= TikTok + Instagram + Cộng đồng, KHÔNG gồm Unknown)")
 
     try:
         engine = create_engine(DB_CONN)
@@ -470,6 +526,7 @@ def main():
         ensure_schema(engine)
         load_to_db(engine, df_tiktok,    'business_performance')
         load_to_db(engine, df_instagram, 'instagram_performance')
+        load_platform_rows(engine, df_congdong, 'other_channel_performance', PLATFORM_CONG_DONG)
         print("\n--- ✅ KẾT THÚC CÔNG VIỆC! DỮ LIỆU ĐÃ SẴN SÀNG ---")
     except Exception as e:
         print(f"❌ LỖI RỒI CHÚ ƠI: {str(e)}")
