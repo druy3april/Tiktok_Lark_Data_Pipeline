@@ -226,6 +226,7 @@ def normalize_all(df_raw):
     s_box    = get_coalesced_series(['số box', 'so box'])
     s_router = get_coalesced_series(['số router', 'so router'])
     s_ngay   = get_coalesced_series(['ngày mua', 'log_date', 'ngày thanh toán'])
+    s_ngay = pd.to_datetime(s_ngay.astype(float), unit='ms', errors='coerce').dt.strftime('%Y-%m-%d')
     s_week   = get_coalesced_series(['tuần'])
     s_month  = get_coalesced_series(['tháng', 'month'])
     s_ma_don = get_coalesced_series(['mã đơn hàng', 'bill id'])
