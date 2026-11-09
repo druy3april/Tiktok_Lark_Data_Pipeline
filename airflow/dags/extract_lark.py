@@ -15,7 +15,7 @@ URL_OLD = "https://media-admin.genfarmer.com/get_data?table_id=tblqy8l657mdlv9H"
 URL_NEW = "https://media-admin.genfarmer.com/get_data?table_id=tblD19qpIzx3X9wS&base_id=Xfz8bJ3mOa6mgwsOZ4Au29iWsff"
 URL_SALE_CLOUD_PHONE = "https://media-admin.genfarmer.com/get_data?table_id=tblbzgX8kX6Wz6cJ&base_id=Xfz8bJ3mOa6mgwsOZ4Au29iWsff"
 URL_SMM = "https://media-admin.genfarmer.com/get_data?table_id=tbl1OYUYHDPrE4Q8&base_id=Xfz8bJ3mOa6mgwsOZ4Au29iWsff"
-DB_CONN = os.getenv('SUPABASE_DB_URL')
+DB_CONN = os.getenv('SUPABASE_DB_URL').replace('postgresql+psycopg://', 'postgresql+psycopg2://').replace('postgresql://', 'postgresql+psycopg2://')
 
 # ─────────────────────────────────────────────────────────────
 # BƯỚC 1: Kéo toàn bộ data từ Lark
