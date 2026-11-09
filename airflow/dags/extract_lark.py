@@ -218,7 +218,7 @@ def normalize_all(df_raw):
         s = df_raw[matched_cols[0]].copy()
         for col in matched_cols[1:]:
             mask = s.isna() | (s == '')
-            s.loc[mask] = df_raw[col].loc[mask].astype(str)
+            s.loc[mask] = df_raw[col].loc[mask].astype(s.dtype)
         return s
 
     s_nguon  = get_coalesced_series(['nguồn khách', 'nguon khach', 'channel'])
